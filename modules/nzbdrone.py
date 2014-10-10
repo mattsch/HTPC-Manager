@@ -101,7 +101,7 @@ class NzbDrone:
             #print url
 
             if banner:
-                url = 'http%s://%s:%s%s%s' % (ssl, host, port, nzbdrone_basepath, path[1:])
+                url = 'http%s://%s:%s%s' % (ssl, host, port, path)
                 r = requests.get(url, headers=headers)
                 return r.content
 
