@@ -6,11 +6,9 @@ import htpc
 from cherrypy.lib.auth2 import require
 import requests
 import urllib
-import urllib2
-from htpc.proxy import get_image
 import logging
 from json import loads, dumps
-import datetime
+import datetime as DT
 
 
 class NzbDrone:
@@ -19,16 +17,14 @@ class NzbDrone:
         htpc.MODULES.append({
             'name': 'NzbDrone',
             'id': 'nzbdrone',
-            'test': htpc.WEBDIR + 'nzbdrone/version',
+            'test': htpc.WEBDIR + 'nzbdrone/Version',
             'fields': [
                 {'type': 'bool', 'label': 'Enable', 'name': 'nzbdrone_enable'},
                 {'type': 'text', 'label': 'Menu name', 'name': 'nzbdrone_name'},
                 {'type': 'text', 'label': 'IP / Host', 'placeholder': 'localhost', 'name': 'nzbdrone_host'},
-                {'type': 'text', 'label': 'Port', 'placeholder': '6789', 'name': 'nzbdrone_port'},
-                {'type': 'text', 'label': 'Basepath', 'placeholder': '/nzbget', 'name': 'nzbdrone_basepath'},
-                {'type': 'text', 'label': 'User', 'name': 'nzbdrone_username'},
+                {'type': 'text', 'label': 'Port', 'placeholder': '8989', 'name': 'nzbdrone_port'},
+                {'type': 'text', 'label': 'Basepath', 'placeholder': '/nzbdrone', 'name': 'nzbdrone_basepath'},
                 {'type': 'text', 'label': 'API', 'name': 'nzbdrone_apikey'},
-                {'type': 'password', 'label': 'Password', 'name': 'nzbdrone_password'},
                 {'type': 'bool', 'label': 'Use SSL', 'name': 'nzbdrone_ssl'}
             ]
         })
@@ -37,51 +33,6 @@ class NzbDrone:
     @require()
     def index(self):
         return htpc.LOOKUP.get_template('nzbdrone.html').render(scriptname='nzbdrone')
-
-    def fetch2(self, path, banner=None, type=None, data=None):
-        try:
-            host = htpc.settings.get('nzbdrone_host', '')
-            port = str(htpc.settings.get('nzbdrone_port', ''))
-            nzbdrone_basepath = htpc.settings.get('nzbdrone_basepath', '/')
-            ssl = 's' if htpc.settings.get('nzbdrone_ssl', True) else ''
-
-            if(nzbdrone_basepath == ""):
-                nzbdrone_basepath = "/"
-            if not(nzbdrone_basepath.endswith('/')):
-                nzbdrone_basepath += "/"
-
-            headers = {'X-Api-Key': htpc.settings.get('nzbdrone_apikey', '')}
-
-            url = 'http%s://%s:%s%sapi/%s' % (ssl, host, port, nzbdrone_basepath, path)
-
-            #url = 'http' + ssl + '://' + host + ':' + port + nzbdrone_basepath + 'api/' + path
-
-            if banner:
-                url = 'http%s://%s:%s%s%s' % (ssl, host, port, nzbdrone_basepath, path[1:])
-                request = urllib2.Request(url, headers=headers)
-
-            else:
-                request = urllib2.Request(url, headers=headers)
-
-            if type == 'post':
-                print 'fetch post req'
-                print dumps(data)
-                request = urllib2.Request(url=url, headers=headers, data=dumps(data))
-
-            #request.add_header("X-Api-Key", "%s" % htpc.settings.get('nzbdrone_apikey', ''))
-
-            if banner:
-                return urllib2.urlopen(request).read()
-
-            else:
-                return loads(urllib2.urlopen(request).read())
-        except Exception as e:
-            print 'fetch error ', e
-            print path
-            #print type
-            #print data
-            #print banner
-            return
 
     def fetch(self, path, banner=None, type=None, data=None):
         try:
@@ -98,92 +49,78 @@ class NzbDrone:
             headers = {'X-Api-Key': htpc.settings.get('nzbdrone_apikey', '')}
 
             url = 'http%s://%s:%s%sapi/%s' % (ssl, host, port, nzbdrone_basepath, path)
-            #print url
 
             if banner:
+                #  the path includes the basepath automaticly
                 url = 'http%s://%s:%s%s' % (ssl, host, port, path)
                 r = requests.get(url, headers=headers)
                 return r.content
 
             if type == 'post':
-                print data
                 r = requests.post(url, data=dumps(data), headers=headers)
                 return r.content
+    
             elif type == 'put':
                 r = requests.post(url, data=dumps(data), headers=headers)
                 return r.content
+    
             elif type == 'delete':
                 r = requests.delete(url, data=dumps(data), headers=headers)
                 return r.content
+    
             else:
                 r = requests.get(url, headers=headers)
-                #return loads(r.content)
                 return loads(r.text)
+    
         except Exception as e:
-            print 'error in path %s' % path
-            print e
+            self.logger.error('Failed to fetch path=%s error %s' % (path, e))
 
-    def posty(self, path, data):
-        
-        print path
-        print data
-        data = dumps(data)
-        host = htpc.settings.get('nzbdrone_host', '')
-        port = str(htpc.settings.get('nzbdrone_port', ''))
-        nzbdrone_basepath = htpc.settings.get('nzbdrone_basepath', '/')
-        ssl = 's' if htpc.settings.get('nzbdrone_ssl', True) else ''
+    @cherrypy.expose()
+    @require()
+    def Version(self, nzbdrone_host, nzbdrone_port, nzbdrone_basepath, nzbdrone_apikey, nzbdrone_ssl = False, **kwargs):
+        try:
+            ssl = 's' if nzbdrone_ssl else ''
+            if(nzbdrone_basepath == ""):
+                nzbdrone_basepath = "/"
+            if not(nzbdrone_basepath.endswith('/')):
+                nzbdrone_basepath += "/"
 
-        if(nzbdrone_basepath == ""):
-            nzbdrone_basepath = "/"
-        if not(nzbdrone_basepath.endswith('/')):
-            nzbdrone_basepath += "/"
+            headers = {'X-Api-Key': str(nzbdrone_apikey)}
+            url = 'http%s://%s:%s%sapi/system/status' % (ssl, nzbdrone_host, nzbdrone_port, nzbdrone_basepath)
+            result = requests.get(url, headers=headers)
 
-        url = 'http%s://%s:%s%sapi/%s' % (ssl, host, port, nzbdrone_basepath, path)
-        print url
-        headers = {'X-Api-Key': (htpc.settings.get('nzbdrone_apikey', ''))}
-        #request = urllib2.Request(url)
-        #request.add_header("X-Api-Key", "%s" % htpc.settings.get('nzbdrone_apikey', ''))
-
-        r = requests.post(url, data=data, headers=headers)
-
-        print r.text
-        print r.status_code
-        print r.url
-
-        #print urllib2.urlopen(request, data).read()
-
-        #return urllib2.urlopen(request, data)
-        
-
-
+            return result.json()
+        except:
+            return
 
     @cherrypy.expose()
     @require()
     @cherrypy.tools.json_out()
     def Rootfolder(self):
-        print 'rootfolder'
         path = self.fetch('Rootfolder')
         for p in path:
-            print p
             return p["path"]
-        #return self.fetch('Rootfolder')
 
+    #Returns all shows
     @cherrypy.expose()
     @require()
     @cherrypy.tools.json_out()
     def Series(self):
         return self.fetch('Series')
 
+    #Return one show
     @cherrypy.expose()
     @require()
     @cherrypy.tools.json_out()
-    def Show(self, tvdbid, id):
-        print 'running SHOW'
-        try:
-            #print self.fetch('Series/' + id)
-            return self.fetch('Series/%s' % id)
-        except Exception as e:
-            print e
+    def Show(self, id, tvdbid=None):
+        return self.fetch('Series/%s' % id)
+
+    @cherrypy.expose()
+    @require()
+    @cherrypy.tools.json_out()
+    def Delete_Show(self, id, title, delete_date=None):
+        self.logger.debug('Deleted tvshow %s' % title)
+        return self.fetch('Series/%s' % id, type='delete')
 
     @cherrypy.expose()
     @require()
@@ -195,18 +132,14 @@ class NzbDrone:
     @require()
     @cherrypy.tools.json_out()
     def Calendar(self, param=None):
-        current_date = datetime.datetime.utcnow().strftime("%Y-%m-%d")
-        start_date = (datetime.datetime.strptime(current_date, '%Y-%m-%d') - datetime.timedelta(days=7)).strftime('%Y-%m-%d')
-        end_date = (datetime.datetime.strptime(current_date, '%Y-%m-%d') + datetime.timedelta(days=7)).strftime('%Y-%m-%d')
-        p = 'Calendar?start=' + current_date + '&end=' + end_date
-        return self.fetch(p)
+        return self.fetch('Calendar?end=%s' % (DT.date.today() + DT.timedelta(days=7)))
 
     @cherrypy.expose()
     @require()
     def View(self, tvdbid, id):
         if not (tvdbid.isdigit()):
             raise cherrypy.HTTPError("500 Error", "Invalid show ID.")
-            self.logger.error("Invalid show ID was supplied: " + str(tvdbid))
+            self.logger.error("Invalid show ID was supplied: " + str(id))
             return False
 
         return htpc.LOOKUP.get_template('nzbdrone_view.html').render(scriptname='nzbdrone_view', tvdbid=tvdbid, id=id)
@@ -214,21 +147,12 @@ class NzbDrone:
     @cherrypy.expose()
     @require()
     @cherrypy.tools.json_out()
-    def Search(self, query):
-        params = 'Series/lookup?term=%s' % (urllib2.quote(query))
-        print self.fetch(params)
-        return self.fetch(params)
-
-    @cherrypy.expose()
-    @require()
-    @cherrypy.tools.json_out()
     def Episodes(self, id):
-        params = 'episode?seriesId=%s' % id #episode
-        return self.fetch(params)
+        return self.fetch('episode?seriesId=%s' % id)
 
     @cherrypy.expose()
     @require()
-    def GetBanner(self, url):
+    def GetBanner(self, url=None):
         self.logger.debug("Fetching Banner")
         cherrypy.response.headers['Content-Type'] = 'image/jpeg'
         return self.fetch(url, banner=True)
@@ -237,157 +161,81 @@ class NzbDrone:
     @require()
     @cherrypy.tools.json_out()
     def Episode(self, id):
+        self.logger.debug("Fetching Episode info")
         return self.fetch('episode/%s' % id)
 
+    #Returns all the episodes from a show, with file info
     @cherrypy.expose()
     @require()
     @cherrypy.tools.json_out()
     def Episodesqly(self, id):
-        print 'Episodesqly ', id
-        params = 'episodefile?seriesId=%s' % id #episode
-        print self.fetch(params)
-        return self.fetch(params)
-        '''
-        Request URL:http://localhost:9000/api/episodefile?seriesId=397
+        self.logger.debug('Fetching fileinfo for all episodes in a show')
+        return self.fetch('episodefile?seriesId=%s' % id)
 
-        '''
-
+    #Return one episode with file info
     @cherrypy.expose()
     @require()
     @cherrypy.tools.json_out()
     def Episodeqly(self, id):
         return self.fetch('episodefile/%s' % id)
 
+    #Return the download profiles, used to match a id to  get the name
     @cherrypy.expose()
     @require()
     @cherrypy.tools.json_out()
     def Profile(self):
-        #print self.fetch('profile')
         return self.fetch('profile')
 
     @cherrypy.expose()
     @require()
-    @cherrypy.tools.json_out()
-    def Refreshseries(self, id=None):
-        if id:
-            d = {
-                "name": "RefreshSeries",
-                "seriesId": int(id)
-            }
-        else:
-            d = {"name": "Refreshseries"}
-    
-        return self.fetch(path='command', data=d, type='post')
-
-    @cherrypy.expose()
-    @require()
-    @cherrypy.tools.json_out()
-    def Rescanseries(self, id=None):
-        if id:
-            d = {
-                "name": "RescanSeries",
-                "seriesId": int(id)
-            }
-        else:
-            d = {"name": "Refreshseries"}
-    
-        return self.fetch(path='command', data=d, type='post')
-
-    @cherrypy.expose()
-    @require()
-    @cherrypy.tools.json_out()
-    def EpisodeSearch(self, id=None):
-        if id:
-            d = {
-                "name": "EpisodeSearch",
-                "episodeIds": [int(id)]#int(id) # if more then one list of ints
-            }
-        else:
-            d = {"name": "Refreshseries"}
-    
-        return self.fetch(path='command', data=d, type='post')
-    #SeasonSearch
-
-    @cherrypy.expose()
-    @require()
-    #@cherrypy.tools.json_out()
     def Command(self, **kwargs):
         k = kwargs
-        print k
         cherrypy.response.headers['Content-Type'] = "application/json"
-        for key, value in kwargs.iteritems():
-            print key, value
         try:
             data = {}
             data["name"] = k["method"]
             if k["par"] == "episodeIds":
                 k["id"] = [int(k["id"])]
-            data[k["par"]] = k["id"]#int(k["id"])
-            #if k['name']:
-            #    del k['name']
-            #    print 'lols'
-        except KeyError, e:
-            print e
- 
+            data[k["par"]] = k["id"]
+        except KeyError:
+            pass
+
         return self.fetch(path='command', data=data, type='post')
 
-    @cherrypy.expose()
-    @require()
-    def System(self, path):
-        #system/restart
-        path = 'command/%s' % path
-        #print path
-        return self.fetch(path)
-
+    #Search for a serie
     @cherrypy.expose()
     @require()
     @cherrypy.tools.json_out()
     def Lookup(self, q):
-        print q
-        #print self.fetch('Series/lookup?term=%s' % urllib.quote(q))
         return self.fetch('Series/lookup?term=%s' % urllib.quote(q))
 
     @cherrypy.expose()
     @require()
-    #@cherrypy.tools.json_out()
     def AddShow(self, tvdbid, quality):
-        data = []
         d = {}
         try:
-            tvshow = self.fetch('Series/lookup?term=tvdbid:%s' % tvdbid) #Series/lookup/?term=tvdbid:'+tvdbid
+            tvshow = self.fetch('Series/lookup?term=tvdbid:%s' % tvdbid)
             rootfolder = self.Rootfolder()
             seasoncount = 1
             season = []
             for i in tvshow:
-                #print i
                 seasoncount += i['seasonCount']
-                
+
                 d["title"] = i['title']
                 d["tvdbId"] = int(i['tvdbId'])
                 d["qualityProfileId"] = int(quality)
                 d["titleSlug"] = i['titleSlug']
                 d["RootFolderPath"] = rootfolder
-                #print rootfolder
-                #d['seasons'] = i['seasons']
 
                 for x in xrange(1, int(seasoncount)):
                     s = {"seasonNumber": x, "monitored": True}
                     season.append(s)
 
                 d["seasons"] = season
-                
-            
-            #print self.fetch('Series', data=d, type='post')
-            addshow =  self.fetch('Series', data=d, type='post')
-            print 'type is'
-            # Manually add correct headers since @cherrypy.tools.json_out() renders its wrong
+
+            # Manually add correct headers since @cherrypy.tools.json_out() renders it wrong
             cherrypy.response.headers['Content-Type'] = "application/json"
-            #print type(addshow)
-            return addshow
+            return self.fetch('Series', data=d, type='post')
+
         except Exception, e:
-            print 'addshow error ', e
-
-
-"""
-tvdbId (int) title (string) qualityProfileId (int) titleSlug (string) seasons (array)
-"""
+            self.logger.error('Failed to add tvshow %s %s' % (tvdbid, e))
